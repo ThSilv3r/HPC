@@ -18,12 +18,13 @@ void writeVTK2(long timestep, double *data, char prefix[1024], int localWidth, i
     char filename[2048];
     int x, y;
     int w = localWidth - originX, h = localHeight - originY;
+    if (isDirectoryExists("vti") == 0)
+        mkdir("vti", 0777);
     int offsetX = originX;
     int offsetY = originY;
     float deltax = 1.0;
     long nxy = w * h * sizeof(float);
-    //printf("NXY:%ld\n", nxy);
-    snprintf(filename, sizeof(filename), "%s_%d-%05ld%s", prefix, threadNumber, timestep, ".vti");
+    snprintf(filename, sizeof(filename), "vti/%s_%d-%05ld%s", prefix, threadNumber, timestep, ".vti");
     FILE *fp = fopen(filename, "w");
 
     fprintf(fp, "<?xml version=\"1.0\"?>\n");
@@ -38,24 +39,20 @@ void writeVTK2(long timestep, double *data, char prefix[1024], int localWidth, i
     fprintf(fp, "_");
     fwrite((unsigned char *)&nxy, sizeof(long), 1, fp);
 
-    // printf("\nThread: %d writing...\noriginX/originY:%d/%d localWidth/localHeight: %d/%d\n", threadNumber, originX, originY, w, h);
-
     for (y = originY; y < localHeight; y++)
     {
         for (x = originX; x < localWidth; x++)
         {
             float value = data[calcIndex(totalWidth, x, y)];
-            // if (threadNumber == 0)
-            //     printf("Entry: i: %d, %f | thread:%d\n", calcIndex(totalWidth, x, y), value, threadNumber);
             fwrite((unsigned char *)&value, sizeof(float), 1, fp);
         }
     }
-    //printf("\nThread: %d finished\n", threadNumber);
 
     fprintf(fp, "\n</AppendedData>\n");
     fprintf(fp, "</VTKFile>\n");
     fclose(fp);
 }
+
 
 
 void show(double* currentfield, int w, int h) {
@@ -131,15 +128,18 @@ int countLifingsPeriodics(double* currentfield, int x, int y, int w, int h){
     return n;
 }
 
-void filling(double *currentfield, int w, int h)
+void filling(double *currentfield, int w, int h, char inputConfiguration[])
 {
-    int i;
+    //int i;
 
-    for (i = 0; i < h * w; i++)
+    readInputConfig(currentfield, w, h, inputConfiguration);
+
+    /*for (i = 0; i < h * w; i++)
     {
         currentfield[i] = (rand() < RAND_MAX / 10) ? 1 : 0; ///< init domain randomly
-    }
+    }*/
 }
+
 
 void game(int Nx, int Ny, int Px, int Py) {
   int w = Nx * Px;
@@ -149,8 +149,10 @@ void game(int Nx, int Ny, int Px, int Py) {
   double *newfield     = calloc(w*h, sizeof(double));
 
   //printf("size unsigned %d, size long %d\n",sizeof(float), sizeof(long));
+  char inputConfiguration[] = "#N $rats\n#O David Buckingham\n#C A period 6 oscillator found in 1972.\n#C www.conwaylife.com/wiki/index.php?title=$rats\nx = 12, y = 11, rule = B3/S23\n5b2o5b$6bo5b$4bo7b$2obob4o3b$2obo5bobo$3bo2b3ob2o$3bo4bo3b$4b3obo3b$7bo4b$6bo5b$6b2o!";
 
-  filling(currentfield, w, h);
+  filling(currentfield, w, h, inputConfiguration);
+
 
     int threads;
     threads = Px * Py;
@@ -182,17 +184,139 @@ void game(int Nx, int Ny, int Px, int Py) {
 
 }
 
-int main(int c, char **v) {
-  int Nx = 0, Ny = 0, Px = 0, Py = 0;
-  if (c > 1) Nx = atoi(v[1]); ///< read width
-  if (c > 2) Ny = atoi(v[2]); ///< read height
-  if (c > 3) Px = atoi(v[3]); ///< read number of Px
-  if (c >4) Py = atoi(v[4]); ///< read numbers of Py
-  if (Nx <= 0) Nx = 4096/1; ///< default width
-  if (Ny <= 0) Ny = 4096/8; ///< default height
-  if (Px <= 0) Px = 1; ///< default Px
-  if (Py <= 0) Py = 8; ///< default Py
-  TimeSteps = 54;
+int main(int argc, char *argv[])
+{
+    int Nx = 0;
+    int Ny = 0;
+    int Px = 0;
+    int Py = 0;
+    char fileName[1024] = "";
 
-  game(Nx, Ny, Px, Py);
+    if (argc > 1)
+        TimeSteps = atoi(argv[1]);
+    if (argc > 2)
+        Nx = atoi(argv[2]);
+    if (argc > 3)
+        Ny = atoi(argv[3]);
+    if (argc > 4)
+        Px = atoi(argv[4]);
+    if (argc > 5)
+        Py = atoi(argv[5]);
+    if (Nx <= 0)
+        Nx = 200;
+    if (Ny <= 0)
+        Ny = 200;
+    if (Px <= 0)
+        Px = 2;
+    if (Py <= 0)
+        Py = 4;
+    if (TimeSteps <= 0)
+        TimeSteps = 100;
+
+    int w = Nx * Px;
+    int h = Ny * Py;
+
+    int bufferSize = w * h;
+
+    char *readBuffer = calloc(bufferSize, sizeof(char));
+
+    if (argc > 6)
+    {
+        snprintf(fileName, sizeof(fileName), "%s", argv[6]);
+
+        printf("Filename: %s\n", fileName);
+        FILE *fp;
+        fp = fopen(fileName, "r");
+        if (!fp)
+        {
+            printf("Could not open File.\n");
+            return 1;
+        }
+        fread(readBuffer, sizeof(char), bufferSize, fp);
+        fclose(fp);
+    }
+    // default:
+    game(Nx, Ny, Px, Py, readBuffer);
+}
+
+void readInputConfig(double *currentfield, int width, int height, char inputConfiguration[])
+{
+    int i = 0;
+    int x = 0;
+    int y = height - 1;
+
+    char currentCharacter;
+    char nextCharacter;
+    int currentDigit;
+    bool isComment = true;
+
+    while (isComment)
+    {
+        if (inputConfiguration[i] == '#')
+        {
+            isComment = false;
+            while (inputConfiguration[i] != '\n')
+                i++;
+            isComment = inputConfiguration[++i] == '#';
+        }
+    }
+
+    int buffIndex = 0;
+    char bufferX[10];
+    if (inputConfiguration[i] == 'x' || inputConfiguration[i] == 'X')
+    {
+        while (isdigit(inputConfiguration[i]) == false)
+            i++;
+        while (isdigit(inputConfiguration[i]))
+            bufferX[buffIndex++] = inputConfiguration[i++];
+    }
+    int xMax = atoi(bufferX);
+
+    while (inputConfiguration[i] != 'y' && inputConfiguration[i] != 'Y')
+        i++;
+
+    char bufferY[10];
+    buffIndex = 0;
+    if (inputConfiguration[i] == 'y' || inputConfiguration[i] == 'Y')
+    {
+        while (isdigit(inputConfiguration[i]) == false)
+            i++;
+        while (isdigit(inputConfiguration[i]))
+            bufferY[buffIndex++] = inputConfiguration[i++];
+        while (inputConfiguration[i] != '\n')
+            i++;
+    }
+
+    int yMax = atoi(bufferY);
+
+    // printf("Max x/y: %d/%d\n", xMax, yMax);
+
+    while (inputConfiguration[i] != '!')
+    {
+        currentCharacter = inputConfiguration[i];
+        if (currentCharacter == '$')
+        {
+            x = 0;
+            y--;
+        }
+        else if (currentCharacter == 'b')
+            x++;
+        else if (currentCharacter == 'o')
+            currentfield[calcIndex(width, x, y)] = 1;
+        else if (isdigit(currentCharacter))
+        {
+            currentDigit = currentCharacter - '0';
+            // printf("The Char: %c is digit: %d\n", currentCharacter, currentDigit);
+            nextCharacter = inputConfiguration[++i];
+            if (nextCharacter == 'b')
+                x += currentDigit;
+            else if (nextCharacter == 'o')
+            {
+                int upperBound = x + currentDigit;
+                for (; x < upperBound; x++)
+                    currentfield[calcIndex(width, x, y)] = 1;
+            }
+        }
+        i++;
+    } // printf("The String is: %s | The array size is: %d\n", inputConfiguration, stringLength);
 }
