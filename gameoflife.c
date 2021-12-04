@@ -130,14 +130,14 @@ int countLifingsPeriodics(double* currentfield, int x, int y, int w, int h){
 
 void filling(double *currentfield, int w, int h, char inputConfiguration[])
 {
-    //int i;
+    int i;
 
-    readInputConfig(currentfield, w, h, inputConfiguration);
+    //readInputConfig(currentfield, w, h, inputConfiguration);
 
-    /*for (i = 0; i < h * w; i++)
+    for (i = 0; i < h * w; i++)
     {
         currentfield[i] = (rand() < RAND_MAX / 10) ? 1 : 0; ///< init domain randomly
-    }*/
+    }
 }
 
 
